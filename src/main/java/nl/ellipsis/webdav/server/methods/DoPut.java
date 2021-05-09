@@ -21,6 +21,7 @@ import java.util.Hashtable;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
+import nl.ellipsis.webdav.server.exceptions.UploadedFileRejectedException;
 import org.springframework.http.HttpStatus;
 
 import nl.ellipsis.webdav.server.ITransaction;
@@ -77,7 +78,7 @@ public class DoPut extends AbstractMethod {
 			}
 
 			String tempLockOwner = "doPut" + System.currentTimeMillis() + req.toString();
-			if (_resourceLocks.lock(transaction, path, tempLockOwner, false, 0, TEMP_TIMEOUT, TEMPORARY)) {
+			if (_resourceLocks.lock(transaction, path, tempLockOwner, false, 0, AbstractMethod.getTempTimeout(), TEMPORARY)) {
 				StoredObject parentSo, so = null;
 				try {
 					parentSo = _store.getStoredObject(transaction, parentPath);
@@ -105,6 +106,7 @@ public class DoPut extends AbstractMethod {
 
 							LockedObject nullResourceLo = _resourceLocks.getLockedObjectByPath(transaction, path);
 							if (nullResourceLo == null) {
+								LOG.error("Sending internal error - Failed to lock");
 								resp.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
 								return;
 							}
@@ -127,6 +129,7 @@ public class DoPut extends AbstractMethod {
 									owner = nullResourceLockOwners[0];
 
 								if (!_resourceLocks.unlock(transaction, lockToken, owner)) {
+									LOG.error("Sending internal error - Failed to unlock");
 									resp.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
 								}
 							} else {
@@ -148,12 +151,16 @@ public class DoPut extends AbstractMethod {
 					// Now lets report back what was actually saved
 				} catch (AccessDeniedException e) {
 					resp.sendError(HttpServletResponse.SC_FORBIDDEN);
+				} catch (UploadedFileRejectedException e) {
+					resp.sendError(HttpServletResponse.SC_NOT_ACCEPTABLE);
 				} catch (WebDAVException e) {
+					LOG.error("Sending internal error!", e);
 					resp.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
 				} finally {
 					_resourceLocks.unlockTemporaryLockedObjects(transaction, path, tempLockOwner);
 				}
 			} else {
+				LOG.error("Sending internal error - Failed to lock");
 				resp.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
 			}
 		} else {
